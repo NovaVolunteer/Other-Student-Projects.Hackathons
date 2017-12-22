@@ -1,0 +1,418 @@
+
+---
+Comtitle: Caribou Analytics - CompositionID
+author: "Eric Goldman"
+date: "October 25, 2017"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load data and EDA}
+#Set working Directory
+setwd("C:/Users/ericg/Desktop/DATS 6101/CompId")
+
+#Read in Survey CSV
+survey <- data.frame(read.csv("CIDsurvey.csv"))
+
+#Seeting Variables for the data frame parameters of the survey
+FirstCol <-15
+LastCol <- 40
+
+#EDA of survey
+head(survey)
+str(survey)
+summary(survey)
+hist(survey$A)
+hist(survey$B)
+hist(survey$C)
+hist(survey$D)
+hist(survey$E)
+hist(survey$X)
+hist(survey$Y)
+hist(survey$Z)
+#Looking at the histograms, most variables are YES! or NO! (10 or 0)
+
+
+#Remove obs with null values
+survey2 <- survey[complete.cases(survey), ]
+#46 Customers did not complete survey
+
+#Remove Variable with IDs
+survey2 <-survey2[-1]
+summary(survey2)
+
+#Means of raw survey questions
+counts <- colMeans(survey2[FirstCol:LastCol])
+
+#Average survey value (6.39)
+survey.mean <-mean(counts)
+
+#Converting the means to a data frame
+counts.df <-data.frame(counts)
+
+#Ordering the data frame by score and rounding to 2 decimal points
+counts.order <- round(counts.df[order(-counts.df$counts),, drop = FALSE],digits=2)
+
+#Storing the Question names
+counts.df.rn <- (row.names(counts.order))
+
+```
+
+
+```{r Normal Data}
+#Function to normalizae the Customer survey results for analysis
+normalize <- function(x) {
+  if(min(x) != max(x)) {
+  value<-((x - min(x)) / (max(x) - min(x))) 
+  } else {
+  value<-max(x)/10
+  }
+return(value)
+}
+
+#Call the Customer IDs
+rns2<-row.names(survey2[FirstCol:LastCol])
+
+#Call the Survey Questions
+cns2<-colnames(survey2[FirstCol:LastCol])
+
+#Transposing the axis to prepare survey for normalization
+survey2.transpose<-as.data.frame(t(survey2[FirstCol:LastCol]))
+
+#Normalize the survey
+survey2normt <- as.data.frame(lapply(survey2.transpose, normalize))
+
+#Recall the survey back to 0-10 point scale
+survey2norm <-10*as.data.frame(t(survey2normt))
+
+#Recall the col names
+names(survey2norm) <-cns2
+
+#Recall the row names
+row.names(survey2norm) <-rns2
+
+#Bind two data frames for grpahing the differences in Factor Variables. 
+surveygender <- cbind(survey2norm,survey2[3])
+
+#Means of survey questions
+counts2 <- colMeans(survey2norm)
+
+#Subsetting the data frame by gender
+surveyfemale<-subset(surveygender, Gender=="Female")
+surveymale<-subset(surveygender, Gender=="Male")
+surveyfemale<-surveyfemale[1:26] 
+surveymale<-surveymale[1:26] 
+countsmale <- colMeans(surveymale)
+countsfemale <- colMeans(surveyfemale)
+countsmale.df<-data.frame(countsmale)
+countsfemale.df<-data.frame(countsfemale)
+countsbygender<-cbind(countsfemale.df, countsmale.df)
+
+#Average survey value (6.07)
+survey.mean2 <-mean(counts2)
+#Converting the means to a data frame
+counts.df2 <-data.frame(counts2)
+#Ordering the data frame by score and rounding to 2 decimal points
+counts.order2 <- round(counts.df2[order(-counts.df2$counts),, drop = FALSE],digits=2)
+#Storing the Question names
+counts.df.rn2 <- (row.names(counts.order2))
+
+library(ggplot2)
+#Plotting the Average Score vs Survey Question with a dashed line of the average response value overall (6.07)
+ggplot(counts.order2, aes(x=row.names(counts.order2), y=counts2)) +
+  geom_point(aes(shape="1",size=4), show.legend=F)+ scale_shape(solid = TRUE) + scale_y_continuous(limits = c(0, 10),
+                                  breaks = c(0,2,4,6,8,10),
+                                  minor_breaks = c(1,3,5,7,9)) +
+  labs(y="Average Score", x="Survey Response") +
+  geom_hline(yintercept=survey.mean2, linetype=2)
+
+
+library(reshape2)
+#Melt the data frames ro plot Male and Female responses on plot
+gendermelt.df<- cbind(row.names(countsbygender),countsbygender)
+gendermelt.df2 <- melt(gendermelt.df, id.vars = "row.names(countsbygender)", measure.vars = grep("^counts", names(countsbygender), value = TRUE))
+
+#Plotting the means by Gender, Red is Female, Blue is Male
+ggplot(gendermelt.df2, aes(x=gendermelt.df2$`row.names(countsbygender)`, y=gendermelt.df2$value)) +
+  geom_point(aes(shape="1",size=4, colour=factor(variable)), show.legend = F) + scale_shape(solid = TRUE, guide = FALSE) + scale_y_continuous(limits = c(0, 10),
+breaks = c(0,2,4,6,8,10),
+minor_breaks = c(1,3,5,7,9)) +
+labs(y="Average Score", x="Survey Response") +
+geom_hline(yintercept=survey.mean2, linetype=2) 
+
+
+#Barplot of the sorted data
+bplt<- barplot(rev(counts.order2$counts), names.arg=rev(row.names(counts.order2)), horiz=TRUE, las=1, xlab="Score", ylab="Survey Question", cex.names=0.7, border=NA, xlim=c(0,10)) 
+#Plots the barplot with values
+text(x= rev(counts.order2$counts)+.4, y= bplt, labels=as.character(rev(counts.order2$counts)), cex=.7, xpd=TRUE)
+#A and B have the highest scores where W and G have the lowest scores. 
+
+
+```
+
+```{r COR and PCA}
+
+library(devtools)
+library(ggbiplot)
+library("polycor")
+#Test for cor among variables. A,B, and M appear to have moderate. K and G are moderate
+hetcor(survey2norm)
+
+library("corrplot")
+ct=cor(survey2norm, method="pearson")
+corrplot(ct, order="original", method="circle", tl.pos="lt", type="upper",        
+tl.col="black", tl.cex=0.6, tl.srt=45, 
+         addCoef.col="black", addCoefasPercent = TRUE,
+         p.mat = 1-abs(ct), sig.level=0.50, insig = "blank")
+
+
+#Performing Principal Components Analysis
+log.ir <-log(survey2norm)
+log.ir[log.ir=="-Inf"]<-0
+ir.pca <- prcomp(log.ir,
+                 center = TRUE,
+                 scale. = TRUE)
+#Five PC make up 52% of the variance. 2 PC make up the first 35% of the variance
+summary(ir.pca)
+
+require(caret)
+trans = preProcess(survey2norm, 
+                  method=c("BoxCox", "center", 
+                "scale", "pca"), thresh=.5)
+
+trans
+
+
+#Plotting the first two PCs against Age Groups. 
+ir.sp <- survey2[,2]
+ggbiplot(ir.pca, obs.scale = 1, var.scale = 1, 
+            groups = ir.sp, ellipse = TRUE, 
+            circle = TRUE) + scale_color_discrete(name = '') + 
+            theme(legend.direction = 'horizontal', 
+            legend.position = 'top')
+
+
+##Plotting the first two PCs against Gender. 
+ir.sp <- survey2[,3]
+ggbiplot(ir.pca, obs.scale = 1, var.scale = 1, 
+            groups = ir.sp, ellipse = TRUE, 
+            circle = TRUE) + scale_color_discrete(name = '') + 
+            theme(legend.direction = 'horizontal', 
+            legend.position = 'top')
+
+#Plotting the first two PCs against Office of choice
+ir.sp <- survey2[,5]
+ggbiplot(ir.pca, obs.scale = 1, var.scale = 1, 
+            groups = ir.sp, ellipse = TRUE, 
+            circle = TRUE) + scale_color_discrete(name = '') + 
+            theme(legend.direction = 'horizontal', 
+            legend.position = 'top')
+
+#Plotting the first two PCs against Education
+ir.sp <- survey2[,6]
+ggbiplot(ir.pca, obs.scale = 1, var.scale = 1, 
+            groups = ir.sp, ellipse = TRUE, 
+            circle = TRUE) + scale_color_discrete(name = '') + 
+            theme(legend.direction = 'horizontal', 
+            legend.position = 'top')
+
+#Plotting the first two PCs against Relationship 
+ir.sp <- survey2[,7]
+ggbiplot(ir.pca, obs.scale = 1, var.scale = 1, 
+            groups = ir.sp, ellipse = TRUE, 
+            circle = TRUE) + scale_color_discrete(name = '') + 
+            theme(legend.direction = 'horizontal', 
+            legend.position = 'top')
+
+#Plotting the first two PCs against Compettive Athlete
+ir.sp <- survey2[,12]
+ggbiplot(ir.pca, obs.scale = 1, var.scale = 1, 
+            groups = ir.sp, ellipse = TRUE, 
+            circle = TRUE) + scale_color_discrete(name = '') + 
+            theme(legend.direction = 'horizontal', 
+            legend.position = 'top')
+
+#Plotting the first two PCs against the class of Repeat Customer. 
+ir.sp <- survey2[,13]
+ggbiplot(ir.pca, obs.scale = 1, var.scale = 1, 
+            groups = ir.sp, ellipse = TRUE, 
+            circle = TRUE) + scale_color_discrete(name = '') + 
+            theme(legend.direction = 'horizontal', 
+            legend.position = 'top')
+
+#Plotting the first two PCs against Products purchased. 
+ir.sp <- survey2[,14]
+ggbiplot(ir.pca, obs.scale = 1, var.scale = 1, 
+            groups = ir.sp, ellipse = TRUE, 
+            circle = TRUE) + scale_color_discrete(name = '') + 
+            theme(legend.direction = 'horizontal', 
+            legend.position = 'top')
+
+#All the factor and class Variables appear to overlap when comparing against the survey responses. 
+```
+
+```{r train test}
+#install.packages("gmodels", repos="http://cran.rstudio.com/")
+library("gmodels")
+library("caret")
+library("class")
+
+#creating a train test package to see if model can predict Repeat customers off survey
+trainIndex = createDataPartition(survey2$Repeat, 
+          p=0.8, list=FALSE,times=1)
+
+train = survey2norm[trainIndex,14:16]
+test = survey2norm[-trainIndex,14:16]
+train_labels <- survey2[trainIndex,8]
+test_labels <- survey2[-trainIndex,8]
+survey2_pred <- knn(train=train, test=test,cl=train_labels, k=11)
+CrossTable(x=test_labels, y=survey2_pred, prop.chisq=FALSE)
+#Predicted 37/78 Repeat Cutomers
+
+#Now for Gender
+trainIndex = createDataPartition(survey2$Gender, 
+          p=0.7, list=FALSE,times=1)
+train = survey2norm[trainIndex,1:26]
+test = survey2norm[-trainIndex,1:26]
+train_labels <- survey2[trainIndex,3]
+test_labels <- survey2[-trainIndex,3]
+survey2_pred <- knn(train=train, test=test,cl=train_labels, k=9)
+CrossTable(x=test_labels, y=survey2_pred, prop.chisq=FALSE)
+#Predicted 51/79 Genders correctly. 
+
+#EDA operations to explore relationship of subset data. 
+#scatter.smooth(survey2$Gender, survey2$A)
+#pairs(survey2[which(survey2$Repeat=="NO"),c('Age','Income')])
+
+
+
+```
+
+```{r clustering, echo=TRUE}
+#Using the euclidean distance to form clusters among the customers. 
+d <- dist(as.matrix(survey2norm[1:26])) # find distance matrix 
+hc <- hclust(d) # apply hirarchical clustering 
+plot(hc) # Appears to have two over arching groups. 
+survey2.dist=dist(survey2norm)
+clust=hclust(survey2.dist)
+groups<-cutree(clust, k=2)
+x<-cbind(survey2,groups)
+summary(subset(x, groups==1))
+summary(subset(x, groups==2))
+#Group 1 is the majority with high scores on the surveys. Competetive athletes thend to be in this group. Repeat customers are split in this group along with most of the demographics. Group 2 is small and has more males than females. 
+
+#Preparing for WSS and KCCA
+test.scale <-scale(survey2norm)
+wssplot <- function(data=survey2norm, nc=15, seed=1234){
+               wss <- (nrow(data)-1)*sum(apply(data,2,var))
+               for (i in 2:nc){
+                    set.seed(seed)
+                    wss[i] <- sum(kmeans(data, centers=i)$withinss)}
+                plot(1:nc, wss, type="b", xlab="Number of Clusters",
+                     ylab="Within groups sum of squares")}
+
+wssplot(test.scale)
+
+library("flexclust")
+fc_cont <-new("flexclust")
+fc_cont <-new("flexclustControl")
+fc_cont@tolerance <-.01
+fc_cont@iter.max <-100
+fc_cont@verbose <- 0
+fc_cont@min.size <-0
+my_seed <-4
+my_family <-"ejaccard"
+num_clust <-2
+my_seed <- my_seed + 1 
+set.seed(my_seed) 
+cl <- kcca(survey2norm, k = num_clust, save.data = TRUE, control = fc_cont, family = kccaFamily(my_family))
+summary(cl)
+pop_av_dist <- with(cl@clusinfo, sum(size*av_dist)/sum(size)) 
+main_txt <- paste("kcca ", cl@family@name, " - ", 
+                  num_clust, " clusters (", 
+                  256, " sample, seed = ", my_seed,")",
+                  sep = "") 
+test.pca <- prcomp(survey2norm) 
+#The clusters graphed from the distance to origin. No easy to identify grouping.
+#plot(cl, data = as.matrix(survey2norm), project = test.pca, 
+#     main = main_txt,
+#     sub = paste("\nAv Dist = ", format(pop_av_dist, digits = 5), 
+#                 ", k = ", cl@k, sep = "")
+#     )
+
+print(barchart(cl, main = main_txt, strip.prefix = "#",
+               scales = list(cex = 0.6)))
+      
+#COnfirms Two clusters
+library(NbClust)
+set.seed(1234)
+ nc <- NbClust(test.scale, min.nc=2, max.nc=15, method="kmeans")
+table(nc$Best.n[1,])
+
+barplot(table(nc$Best.n[1,]),
+          xlab="Numer of Clusters", ylab="Number of Criteria",
+          main="Number of Clusters Chosen by 26 Criteria")
+
+#SHoes the means of the clusters on the survey questions
+set.seed(1234)
+fit.km <- kmeans(test.scale, 2, nstart=25)                           
+fit.km$size
+fit.km$centers
+aggregate(survey2norm[-1], by=list(cluster=fit.km$cluster), mean)
+```
+
+```{r}
+#Factor Analysis shows there are 11 factors to gain a p-value greater than 0.05. 
+factanal(survey2norm, factors=11)
+#The first four factors have the largest proportion. 
+#Factor 1 appears to be Variable C,X,Y - Personal Health Record
+#Factor 2 appears to be Variable A,B,M,S - Best Value and convenience
+#Factor 3 appears to be Variable U,L - Social 
+#Factor 4 appears to be Variable I,J - Security
+#Factor 5 appears to be Variable N,O,P - Nutrition
+
+
+#The following code fits a linear model against the five Factors. Nutrition and PHR have the greatest slopes. 
+hist(survey2$Monthly)
+
+PHR <-survey2norm$C + survey2norm$X + survey2norm$Y
+BestValue <- survey2norm$A + survey2norm$B + survey2norm$M + survey2norm$S
+Social <- survey2norm$U + survey2norm$L
+Security <- survey2norm$I + survey2norm$J
+Nutrition <- survey2norm$N + survey2norm$O + survey2norm$P
+
+PHR.df <-cbind(survey2[1:14],PHR,survey2[41])
+Nutrition.df <-cbind(survey2[1:14],Nutrition,survey2[41])
+
+
+PHR.lm<- lm(PHR.df$Monthly~PHR, data=PHR.df)
+PHR.lm
+plot(PHR.df$PHR, PHR.df$Monthly)
+abline(PHR.lm)
+
+BV.lm<-lm(survey2$Monthly~BestValue)
+BV.lm
+plot(BestValue, survey2$Monthly)
+abline(BV.lm)
+
+So.lm<-lm(survey2$Monthly~Social)
+So.lm
+plot(Social, survey2$Monthly)
+abline(So.lm)
+
+Se.lm<-lm(survey2$Monthly~Security)
+Se.lm
+plot(Security, survey2$Monthly)
+abline(Se.lm)
+
+lm(Monthly~Nutrition, data=Nutrition.df)
+plot(Nutrition.df$Nutrition, Nutrition.df$Monthly)
+abline(lm(Monthly~Nutrition, data=Nutrition.df))
+
+
+
+```
